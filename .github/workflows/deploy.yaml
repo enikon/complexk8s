@@ -1,0 +1,56 @@
+name: Deploy MultiK8s
+on:
+  push:
+    branches:
+      - main
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Test
+        run: |-
+          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+          docker build -t cyanheron/react-test -f ./client/Dockerfile.dev ./client
+          docker run -e CI=true cyanheron/react-test npm test
+ 
+      - name: Set Service Key
+        uses: 'google-github-actions/auth@v0'
+        with:
+          credentials_json: '${{ secrets.GKE_SA_KEY }}'
+ 
+      - name: Set Project
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: complex-k8s-359108
+ 
+      - name: Auth
+        run: |-
+          gcloud --quiet auth configure-docker
+ 
+      - name: Get Credentials
+        uses: google-github-actions/get-gke-credentials@v0
+        with:
+          cluster_name: multi-cluster
+          location: europe-north1-a
+ 
+      - name: Build
+        run: |-
+          docker build -t cyanheron/multi-client-10-14 -f ./client/Dockerfile ./client
+          docker build -t cyanheron/multi-server-10-14 -f ./server/Dockerfile ./server
+          docker build -t cyanheron/multi-worker-10-14 -f ./worker/Dockerfile ./worker
+ 
+      - name: Push
+        run: |-
+          docker push cyanheron/multi-client-10-14
+          docker push cyanheron/multi-server-10-14
+          docker push cyanheron/multi-worker-10-14
+ 
+      - name: Apply
+        run: |-
+          kubectl apply -f k8s
+          kubectl rollout restart -f k8s/client-deployment.yaml
+          kubectl rollout restart -f k8s/server-deployment.yaml
+          kubectl rollout restart -f k8s/worker-deployment.yaml
+       
